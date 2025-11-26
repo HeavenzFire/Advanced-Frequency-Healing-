@@ -145,6 +145,17 @@ export const useAudioController = () => {
     pemfOscillatorRef.current = oscillator;
     pemfGainRef.current = gainNode;
   }, [getAudioContext, stopPEMF]);
+
+  const playAdaptiveFrequency = useCallback((baseFreq: number, adaptationFactor: number) => {
+    stopMainSound();
+    const audioCtx = getAudioContext();
+    const oscillator = audioCtx.createOscillator();
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(baseFreq * adaptationFactor, audioCtx.currentTime);
+    oscillator.connect(audioCtx.destination);
+    oscillator.start();
+    mainOscillatorRef.current = oscillator;
+  }, [getAudioContext, stopMainSound]);
   
   const playSoundEffect = useCallback((freq: number, type: OscillatorType = 'sine', duration: number = 0.15) => {
     const audioCtx = getAudioContext();

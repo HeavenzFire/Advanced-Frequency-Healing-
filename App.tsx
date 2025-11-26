@@ -5,6 +5,7 @@ import Controls from './components/Controls';
 import { useAudioController } from './hooks/useAudioController';
 import { AppState, AudioMode } from './types';
 import { AFFIRMATIONS, FREQUENCIES, INITIAL_AFFIRMATION, BRAINWAVE_FREQUENCIES, CHAKRA_FREQUENCIES, SOLFEGGIO_SCALE } from './constants';
+import { HEALING_AGENTS, HealingAgent } from './agents';
 
 type SequenceStepInfo = {
   name: string;
@@ -30,11 +31,13 @@ const App: React.FC = () => {
   const [intention, setIntention] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [sessionConfig, setSessionConfig] = useState<GenerativeSessionConfig | null>(null);
+  const [selectedAgents, setSelectedAgents] = useState<HealingAgent[]>([]);
+  const [agentResponses, setAgentResponses] = useState<{[key: string]: any}>({});
 
   const biofeedbackIntervalRef = useRef<number | null>(null);
   const affirmationIntervalRef = useRef<number | null>(null);
 
-  const { playSimpleTone, playBinauralBeat, playIsochronicTone, playPEMF, playFrequencySequence, stopAllAudio, adjustPEMFIntensity } = useAudioController();
+  const { playSimpleTone, playBinauralBeat, playIsochronicTone, playPEMF, playFrequencySequence, stopAllAudio, adjustPEMFIntensity, playAdaptiveFrequency } = useAudioController();
 
   const handleStop = useCallback(() => {
     stopAllAudio();
@@ -47,6 +50,8 @@ const App: React.FC = () => {
     setSequenceStep(null);
     setSessionConfig(null);
     setIntention('');
+    setSelectedAgents([]);
+    setAgentResponses({});
   }, [stopAllAudio]);
 
   const handleStartGenerativeSession = async () => {
@@ -56,13 +61,61 @@ const App: React.FC = () => {
     }
     handleStop();
     setIsGenerating(true);
-    setAffirmation("Crafting your personalized healing session...");
-    
+    setAffirmation("Activating 24 AI Healing Agents...");
+
     try {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-        const response = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `The user's intention is: "${intention}". Based on this, generate a healing session. For the primary frequency, choose a relevant value from the Solfeggio, Planetary, or Schumann scales. For the modality, choose 'Binaural' for introspective or calming intentions, and 'Isochronic' for focus or energy-clearing intentions. The brainwave frequency should correspond to the goal (e.g., Alpha for calm, Theta for intuition, Gamma for focus). Generate 3-5 short, positive affirmations that directly relate to the user's intention.`,
+
+        // Select relevant agents based on intention
+        const relevantAgents = HEALING_AGENTS.filter(agent =>
+            intention.toLowerCase().includes(agent.specialty.toLowerCase().split(' ')[0]) ||
+            Math.random() > 0.5 // Random selection for diversity
+        ).slice(0, 6); // Limit to 6 for performance
+
+        setSelectedAgents(relevantAgents);
+
+        const agentPromises = relevantAgents.map(async (agent) => {
+            const response = await ai.models.generateContent({
+                model: "gemini-2.5-flash",
+                contents: `User intention: "${intention}". ${agent.prompt}`,
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: Type.OBJECT,
+                        properties: {
+                            result: { type: Type.STRING, description: "The agent's response or recommendation" },
+                            confidence: { type: Type.NUMBER, description: "Confidence level 0-1" }
+                        },
+                        required: ["result", "confidence"]
+                    },
+                },
+            });
+            return { agent: agent.name, data: JSON.parse(response.text) };
+        });
+
+        const agentResults = await Promise.all(agentPromises);
+        const responses: {[key: string]: any} = {};
+        agentResults.forEach(({ agent, data }) => {
+            responses[agent] = data;
+        });
+        setAgentResponses(responses);
+
+        // Synthesize results into session config
+        const primaryFrequency = responses["Frequency Selector"]?.result || 528;
+        const modality = intention.toLowerCase().includes('focus') || intention.toLowerCase().includes('energy') ? 'Isochronic' : 'Binaural';
+        const brainwaveFrequency = responses["Brainwave Entrainer"]?.result || 10;
+        const visualizerColor = responses["Visualization Architect"]?.result || '#00ff7f';
+        const affirmations = responses["Affirmation Weaver"]?.result?.split('\n') || ["I am healing", "I am whole"];
+
+        const config: GenerativeSessionConfig = {
+            primaryFrequency: parseFloat(primaryFrequency),
+            modality: modality as 'Binaural' | 'Isochronic',
+            brainwaveFrequency: parseFloat(brainwaveFrequency),
+            visualizerColor,
+            affirmations
+        };
+
+        setSessionConfig(config);
             config: {
                 responseMimeType: "application/json",
                 responseSchema: {
@@ -102,6 +155,13 @@ const App: React.FC = () => {
         };
         cycleAffirmations();
         affirmationIntervalRef.current = window.setInterval(cycleAffirmations, 6000);
+
+        // Simulate biofeedback with agents
+        biofeedbackIntervalRef.current = window.setInterval(() => {
+            const stressLevel = responses["Stress Detector"]?.result || 0.5;
+            const newHeartRate = 70 + (stressLevel * 20) + Math.random() * 10 - 5;
+            setHeartRate(Math.round(newHeartRate));
+        }, 2000);
 
     } catch (error) {
         console.error("Error generating session:", error);
